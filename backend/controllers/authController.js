@@ -1,11 +1,7 @@
-
-const express = require("express");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 
-const router = express.Router();
-
-router.post("/login", async (req, res) => {
+async function login(req, res) {
   try {
     const { email, password } = req.body;
 
@@ -43,6 +39,7 @@ router.post("/login", async (req, res) => {
 
     if (!process.env.JWT_SECRET) {
       console.error("JWT_SECRET is missing from .env");
+
       return res.status(500).json({
         message: "Server configuration error",
       });
@@ -66,10 +63,11 @@ router.post("/login", async (req, res) => {
     });
   } catch (error) {
     console.error("Login failed:", error.message);
+
     return res.status(500).json({
       message: "Internal server error",
     });
   }
-});
+}
 
-module.exports = router;
+module.exports = { login };
