@@ -75,6 +75,18 @@ npm start
 
 The API listens on `http://localhost:5000` by default. A successful request to `GET /` returns the API status message.
 
+## Run tests
+
+Run the backend unit tests from this directory:
+
+```bash
+npm test
+```
+
+Tests are stored in `test/` and use Node.js's built-in test runner. The
+authentication controller tests mock the database pool, so they do not require
+a running PostgreSQL server.
+
 ## Main endpoints
 
 - `POST /api/auth/login` — staff login; returns a JWT
@@ -87,4 +99,3 @@ Use the returned JWT as a bearer token for protected requests:
 ```text
 Authorization: Bearer <token>
 ```
-
