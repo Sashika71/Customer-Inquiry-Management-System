@@ -7,11 +7,11 @@ const cardStyles = {
 
 function SummaryCard({ title, value, variant = 'blue', loading = false }) {
   return (
-    <article className={`rounded-xl border p-5 shadow-sm ${cardStyles[variant] || cardStyles.blue}`}>
-      <p className="text-sm font-medium text-slate-500">{title}</p>
+    <article className={`rounded-xl border p-3 shadow-sm sm:p-4 ${cardStyles[variant] || cardStyles.blue}`}>
+      <p className="text-xs font-medium text-slate-500 sm:text-sm">{title}</p>
 
-      <div className="mt-4">
-        <h2 className="text-3xl font-bold text-slate-900">
+      <div className="mt-2 sm:mt-3">
+        <h2 className="text-2xl font-bold text-slate-900 sm:text-3xl">
           {loading ? '—' : value}
         </h2>
       </div>
