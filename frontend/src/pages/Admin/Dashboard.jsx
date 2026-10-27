@@ -3,9 +3,7 @@ import { useEffect, useState } from 'react'
 import AdminLayout from '../../components/AdminLayout'
 import SummaryCard from '../../components/SummaryCard'
 import DuplicateReviewPanel from '../../components/DuplicateReviewPanel'
-
-const API_URL =
-  import.meta.env.VITE_API_URL || 'http://localhost:5000'
+import API_URL from '../../config/api'
 
 function DashboardPage() {
   const [inquiries, setInquiries] = useState([])

@@ -5,7 +5,7 @@ React and Vite frontend for the Customer Inquiry Management System.
 ## Requirements
 
 - Node.js 18 or newer
-- The backend running locally on `http://localhost:5000`
+- The backend running and accessible at the URL configured in `VITE_API_URL`
 
 ## Local setup
 
@@ -21,13 +21,13 @@ React and Vite frontend for the Customer Inquiry Management System.
    npm install
    ```
 
-3. Optional: create a `.env` file to use a different backend URL:
+3. Create a `.env` file in the `frontend` directory
 
-   ```env
-   VITE_API_URL=http://localhost:5000
-   ```
+   You can copy the provided `.env.example` file and update the value for a
+   different backend URL. `VITE_API_URL` is required; the frontend reports a
+   configuration error when it is missing.
 
-   If `VITE_API_URL` is not set, the frontend uses `http://localhost:5000`.
+   Restart the Vite development server after changing `.env` values.
 
 ## Run locally
 
@@ -37,7 +37,9 @@ Start the Vite development server:
 npm run dev
 ```
 
-Open the URL shown by Vite, usually `http://localhost:5173`.
+Open the URL shown by Vite, usually `http://localhost:5173`. The frontend
+uses the backend URL from `VITE_API_URL` for authentication and inquiry API
+requests.
 
 Build the production bundle:
 

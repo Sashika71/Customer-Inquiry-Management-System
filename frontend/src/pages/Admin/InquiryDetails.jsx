@@ -1,274 +1,852 @@
+
 import { useEffect, useState } from 'react'
 import AdminLayout from '../../components/AdminLayout'
+import API_URL from '../../config/api'
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000'
+const STATUSES = ['New', 'In Progress', 'Resolved']
+
+function getToken() {
+  return localStorage.getItem('inquiryDeskToken')
+}
+
+function normalizeStatus(status) {
+  return status === 'Pending' ? 'New' : status
+}
+
+function formatDate(value) {
+  if (!value) return 'Not available'
+
+  const date = new Date(value)
+
+  if (Number.isNaN(date.getTime())) {
+    return 'Not available'
+  }
+
+  return date.toLocaleString()
+}
 
 function statusStyle(status) {
-  if (status === 'New' || status === 'Pending') return 'bg-sky-100 text-sky-700 ring-1 ring-inset ring-sky-200'
-  if (status === 'In Progress') return 'bg-orange-100 text-orange-800 ring-1 ring-inset ring-orange-200'
-  if (status === 'Resolved') return 'bg-emerald-100 text-emerald-800 ring-1 ring-inset ring-emerald-200'
-  return 'bg-slate-100 text-slate-600'
+  switch (normalizeStatus(status)) {
+    case 'New':
+      return 'bg-blue-100 text-blue-700'
+    case 'In Progress':
+      return 'bg-amber-100 text-amber-700'
+    case 'Resolved':
+      return 'bg-green-100 text-green-700'
+    default:
+      return 'bg-gray-100 text-gray-700'
+  }
 }
 
-function formatDate(value, includeTime = true) {
-  if (!value) return '—'
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return '—'
-  return date.toLocaleString([], includeTime
-    ? { year: 'numeric', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }
-    : { year: 'numeric', month: 'short', day: 'numeric' })
+async function readResponse(response) {
+  const data = await response.json().catch(() => ({}))
+
+  if (!response.ok) {
+    throw new Error(data.message || 'Something went wrong. Please try again.')
+  }
+
+  return data
 }
 
-function InquiryDetails({ inquiryId }) {
+export default function InquiryDetails() {
+  const pathParts = window.location.pathname.split('/')
+  const inquiryId = pathParts[pathParts.length - 1]
+
   const [inquiry, setInquiry] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [successMessage, setSuccessMessage] = useState('')
+
   const [nextStatus, setNextStatus] = useState('')
   const [savingStatus, setSavingStatus] = useState(false)
-  const [message, setMessage] = useState('')
-  const [showActions, setShowActions] = useState(false)
-  const [showEmailComposer, setShowEmailComposer] = useState(false)
+
+  const [emailMode, setEmailMode] = useState('')
   const [emailSubject, setEmailSubject] = useState('')
   const [emailMessage, setEmailMessage] = useState('')
   const [sendingEmail, setSendingEmail] = useState(false)
   const [emailError, setEmailError] = useState('')
-  const [emailSent, setEmailSent] = useState(false)
-  const [emailMode, setEmailMode] = useState('follow-up')
+  const [emailSuccess, setEmailSuccess] = useState('')
 
-  useEffect(() => {
-    async function loadInquiry() {
-      const token = localStorage.getItem('inquiryDeskToken')
-      if (!token) {
+  const [statusUpdatedForResolution, setStatusUpdatedForResolution] =
+    useState(false)
+
+  const currentStatus = normalizeStatus(inquiry?.status)
+  const isResolved = currentStatus === 'Resolved'
+
+  // Load the selected inquiry from the backend.
+  async function loadInquiry(showLoading = true) {
+    if (!/^[1-9]\d*$/.test(String(inquiryId))) {
+      setError('Invalid inquiry ID. Please select a valid inquiry.')
+      setLoading(false)
+      return
+    }
+
+    const token = getToken()
+
+    if (!token) {
+      window.location.href = '/'
+      return
+    }
+
+    if (showLoading) {
+      setLoading(true)
+    }
+
+    setError('')
+
+    try {
+      const response = await fetch(
+        `${API_URL}/api/inquiries/${inquiryId}`,
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        },
+      )
+
+      if (response.status === 401 || response.status === 403) {
+        localStorage.removeItem('inquiryDeskToken')
+        localStorage.removeItem('inquiryDeskUser')
         window.location.href = '/'
         return
       }
 
-      try {
-        const response = await fetch(`${API_URL}/api/inquiries/${inquiryId}`, {
-          headers: { Authorization: `Bearer ${token}` },
-        })
-        const result = await response.json()
+      const data = await readResponse(response)
 
-        if (response.status === 401 || response.status === 403) {
-          localStorage.removeItem('inquiryDeskToken')
-          localStorage.removeItem('inquiryDeskUser')
-          window.location.href = '/'
-          return
-        }
-        if (!response.ok) throw new Error(result.message || 'Unable to load inquiry.')
-        setInquiry(result.inquiry)
-      } catch (loadError) {
-        setError(loadError.message || 'Unable to connect to the server.')
-      } finally {
-        setLoading(false)
+      if (!data.inquiry) {
+        throw new Error('Inquiry details could not be loaded.')
       }
-    }
 
+      setInquiry(data.inquiry)
+      setNextStatus(normalizeStatus(data.inquiry.status))
+    } catch (err) {
+      setError(err.message || 'Failed to load inquiry details.')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
     loadInquiry()
+    // Load details when the selected inquiry ID changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [inquiryId])
 
+  // Update the status using the normal status-update action.
   async function updateStatus() {
-    if (!nextStatus) return
+    if (!inquiry || !nextStatus || nextStatus === 'Resolved') {
+      return
+    }
+
+    if (nextStatus === currentStatus) {
+      setSuccessMessage('The inquiry already has this status.')
+      return
+    }
+
     setSavingStatus(true)
-    setMessage('')
+    setError('')
+    setSuccessMessage('')
+
     try {
-      const response = await fetch(`${API_URL}/api/inquiries/${inquiryId}/status`, {
-        method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${localStorage.getItem('inquiryDeskToken')}`,
+      const response = await fetch(
+        `${API_URL}/api/inquiries/${inquiryId}/status`,
+        {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${getToken()}`,
+          },
+          body: JSON.stringify({ status: nextStatus }),
         },
-        body: JSON.stringify({ status: nextStatus }),
-      })
-      const result = await response.json()
-      if (!response.ok) throw new Error(result.message || 'Unable to update status.')
-      setInquiry(result.inquiry)
-      setNextStatus('')
-      setMessage('Status updated successfully.')
-    } catch (updateError) {
-      setMessage(updateError.message)
+      )
+
+      const data = await readResponse(response)
+      const updatedInquiry = data.inquiry
+
+      if (updatedInquiry) {
+        setInquiry(updatedInquiry)
+        setNextStatus(normalizeStatus(updatedInquiry.status))
+      } else {
+        await loadInquiry(false)
+      }
+
+      setSuccessMessage('Inquiry status updated successfully.')
+    } catch (err) {
+      setError(err.message || 'Failed to update inquiry status.')
     } finally {
       setSavingStatus(false)
     }
   }
 
+  // Open the follow-up email composer.
   function openEmailComposer() {
     setEmailMode('follow-up')
-    setEmailSubject(`Re: ${inquiry?.subject || 'Your inquiry'}`)
+    setEmailSubject(
+      inquiry?.subject ? `Follow-up: ${inquiry.subject}` : '',
+    )
     setEmailMessage('')
     setEmailError('')
-    setEmailSent(false)
-    setShowActions(false)
-    setShowEmailComposer(true)
+    setEmailSuccess('')
+    setSuccessMessage('')
   }
 
+  // Open the resolution email composer.
   function openResolutionComposer() {
     setEmailMode('resolution')
-    setEmailSubject(`Resolution: ${inquiry?.subject || 'Your inquiry'}`)
+    setEmailSubject(
+      inquiry?.subject ? `Resolution: ${inquiry.subject}` : '',
+    )
     setEmailMessage('')
     setEmailError('')
-    setEmailSent(false)
-    setShowActions(false)
-    setShowEmailComposer(true)
+    setEmailSuccess('')
+    setSuccessMessage('')
+    setStatusUpdatedForResolution(false)
   }
 
-  async function sendEmail(event) {
-      event.preventDefault()
-      setEmailError('')
-      setSendingEmail(true)
+  function closeEmailComposer() {
+    if (sendingEmail) return
 
-      try {
-        const endpoint = emailMode === 'resolution'
+    setEmailMode('')
+    setEmailSubject('')
+    setEmailMessage('')
+    setEmailError('')
+    setEmailSuccess('')
+    setStatusUpdatedForResolution(false)
+  }
+
+  // Send a follow-up email or resolve the inquiry and notify the customer.
+  async function sendEmail(event) {
+    event.preventDefault()
+
+    if (!emailMessage.trim()) {
+      setEmailError(
+        emailMode === 'resolution'
+          ? 'Please enter the resolution message.'
+          : 'Please enter the email message.',
+      )
+      return
+    }
+
+    if (emailMode === 'follow-up' && !emailSubject.trim()) {
+      setEmailError('Please enter an email subject.')
+      return
+    }
+
+    if (!inquiry) {
+      setEmailError('Inquiry details are not available.')
+      return
+    }
+
+    setSendingEmail(true)
+    setEmailError('')
+    setEmailSuccess('')
+    setSuccessMessage('')
+
+    let resolutionStatusSaved =
+      emailMode === 'resolution' && isResolved
+
+    try {
+      // Step 1: Mark the inquiry as Resolved before sending
+      // the resolution email. Do not repeat this on an email retry.
+      if (emailMode === 'resolution' && !resolutionStatusSaved) {
+        const statusResponse = await fetch(
+          `${API_URL}/api/inquiries/${inquiryId}/status`,
+          {
+            method: 'PATCH',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${getToken()}`,
+            },
+            body: JSON.stringify({ status: 'Resolved' }),
+          },
+        )
+
+        const statusData = await readResponse(statusResponse)
+
+        if (
+          statusData.inquiry &&
+          normalizeStatus(statusData.inquiry.status) !== 'Resolved'
+        ) {
+          throw new Error(
+            'The inquiry status was not updated to Resolved.',
+          )
+        }
+
+        resolutionStatusSaved = true
+        setStatusUpdatedForResolution(true)
+
+        if (statusData.inquiry) {
+          setInquiry(statusData.inquiry)
+          setNextStatus('Resolved')
+        } else {
+          await loadInquiry(false)
+        }
+      }
+
+      // Step 2: Send the appropriate email.
+      const endpoint =
+        emailMode === 'resolution'
           ? `${API_URL}/api/inquiries/${inquiryId}/send-resolution-email`
           : `${API_URL}/api/inquiries/${inquiryId}/send-email`
-        const body = emailMode === 'resolution'
-          ? { message: emailMessage }
-          : { subject: emailSubject, message: emailMessage }
-        const response = await fetch(endpoint, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${localStorage.getItem('inquiryDeskToken')}`,
-          },
-          body: JSON.stringify(body),
-        })
-        const result = await response.json()
 
-        if (!response.ok) throw new Error(result.message || 'Unable to send email.')
-        setEmailSent(true)
-        if (emailMode === 'resolution') {
-          setInquiry((current) => ({ ...current, status: 'Resolved' }))
-        }
-        setEmailMessage('')
-      } catch (sendError) {
-        setEmailError(sendError.message || 'Unable to send email.')
-      } finally {
-        setSendingEmail(false)
+      const payload =
+        emailMode === 'resolution'
+          ? { message: emailMessage.trim() }
+          : {
+              subject: emailSubject.trim(),
+              message: emailMessage.trim(),
+            }
+
+      const emailResponse = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${getToken()}`,
+        },
+        body: JSON.stringify(payload),
+      })
+
+      const emailData = await readResponse(emailResponse)
+
+      const successText =
+        emailData.message ||
+        (emailMode === 'resolution'
+          ? 'Resolution email sent successfully.'
+          : 'Follow-up email sent successfully.')
+
+      setEmailSuccess(successText)
+      setEmailMessage('')
+
+      if (emailMode === 'resolution') {
+        setSuccessMessage(successText)
+        await loadInquiry(false)
+      }
+    } catch (err) {
+      if (emailMode === 'resolution' && resolutionStatusSaved) {
+        // The status may already be Resolved even if email delivery fails.
+        // Keep the updated state and allow the user to retry the email.
+        setEmailError(
+          `The inquiry is Resolved, but the email could not be sent: ${
+            err.message || 'Please try again.'
+          }`,
+        )
+
+        setInquiry((previous) =>
+          previous
+            ? { ...previous, status: 'Resolved' }
+            : previous,
+        )
+        setNextStatus('Resolved')
+        await loadInquiry(false)
+      } else {
+        setEmailError(err.message || 'Failed to send the email.')
+      }
+    } finally {
+      setSendingEmail(false)
     }
   }
 
   if (loading) {
-    return <AdminLayout activePage="inquiries"><main className="min-h-screen bg-slate-50 p-8 text-center text-sm text-slate-500">Loading inquiry...</main></AdminLayout>
+    return (
+      <AdminLayout>
+        <div className="flex min-h-[50vh] items-center justify-center">
+          <p className="text-sm text-gray-500">
+            Loading inquiry details...
+          </p>
+        </div>
+      </AdminLayout>
+    )
   }
 
-  if (error || !inquiry) {
-    return <AdminLayout activePage="inquiries"><main className="min-h-screen bg-slate-50 p-8"><div role="alert" className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">{error || 'Inquiry not found.'}</div></main></AdminLayout>
+  if (error && !inquiry) {
+    return (
+      <AdminLayout>
+        <div className="mx-auto max-w-3xl p-6">
+          <button
+            type="button"
+            onClick={() => window.history.back()}
+            className="mb-5 text-sm font-medium text-blue-600 hover:underline"
+          >
+            ← Back
+          </button>
+
+          <div className="rounded-2xl border border-red-200 bg-red-50 p-5">
+            <h2 className="font-semibold text-red-800">
+              Unable to open inquiry
+            </h2>
+            <p className="mt-2 text-sm text-red-700">{error}</p>
+
+            <button
+              type="button"
+              onClick={() => loadInquiry()}
+              className="mt-4 rounded-lg bg-red-700 px-4 py-2 text-sm font-medium text-white hover:bg-red-800"
+            >
+              Try Again
+            </button>
+          </div>
+        </div>
+      </AdminLayout>
+    )
   }
 
-  const displayStatus = inquiry.status === 'Pending' ? 'New' : inquiry.status
-  const customerInitials = (inquiry.customer_name || 'CU').split(' ').map((part) => part[0]).join('').slice(0, 2).toUpperCase()
+  if (!inquiry) {
+    return (
+      <AdminLayout>
+        <div className="p-6 text-sm text-gray-500">
+          Inquiry not found.
+        </div>
+      </AdminLayout>
+    )
+  }
 
   return (
-    <AdminLayout activePage="inquiries">
-      <main className="min-h-screen bg-slate-50 p-4 sm:p-6 lg:p-8">
-        <div className="mx-auto max-w-[1180px]">
-          <div className="mb-4 text-xs text-slate-400">
-            Dashboard <span className="mx-2">›</span> All Inquiries <span className="mx-2">›</span> <span className="text-slate-600">Inquiry Details</span>
-          </div>
-          <a href="/all-inquiries" className="mb-4 inline-flex items-center gap-2 text-xs font-medium text-slate-600 hover:text-blue-600">← Back to All Inquiries</a>
+    <AdminLayout>
+      <div className="mx-auto max-w-6xl space-y-6 p-4 sm:p-6">
+        {/* Page heading */}
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <div>
+            <button
+              type="button"
+              onClick={() => window.history.back()}
+              className="mb-3 text-sm font-medium text-blue-600 hover:underline"
+            >
+              ← Back to inquiries
+            </button>
 
-          <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
-            <div className="flex items-center gap-3">
-              <h1 className="text-xl font-bold text-slate-900">Inquiry #INQ-{inquiry.id}</h1>
-              <span className={`rounded-full px-3 py-1 text-xs font-medium ${statusStyle(displayStatus)}`}>{displayStatus}</span>
+            <h1 className="text-2xl font-bold text-gray-900">
+              Inquiry #{inquiry.id}
+            </h1>
+
+            <p className="mt-1 text-sm text-gray-500">
+              View customer details and manage this inquiry.
+            </p>
+          </div>
+
+          <span
+            className={`rounded-full px-4 py-2 text-sm font-semibold ${statusStyle(
+              currentStatus,
+            )}`}
+          >
+            {currentStatus || 'Unknown'}
+          </span>
+        </div>
+
+        {/* General feedback */}
+        {error && (
+          <div
+            role="alert"
+            className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700"
+          >
+            {error}
+          </div>
+        )}
+
+        {successMessage && (
+          <div
+            role="status"
+            className="rounded-xl border border-green-200 bg-green-50 p-4 text-sm text-green-700"
+          >
+            {successMessage}
+          </div>
+        )}
+
+        {/* Inquiry and customer information */}
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+          <section className="space-y-6 lg:col-span-2">
+            <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm sm:p-6">
+              <h2 className="text-lg font-semibold text-gray-900">
+                Customer Message
+              </h2>
+
+              <div className="mt-5">
+                <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                  Subject
+                </p>
+                <p className="mt-2 break-words font-medium text-gray-900">
+                  {inquiry.subject || 'No subject provided'}
+                </p>
+              </div>
+
+              <div className="mt-5">
+                <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                  Description
+                </p>
+                <p className="mt-2 whitespace-pre-wrap break-words text-sm leading-7 text-gray-700">
+                  {inquiry.message ||
+                    inquiry.description ||
+                    'No message provided'}
+                </p>
+              </div>
             </div>
-            <div className="relative">
-              <button type="button" onClick={() => setShowActions((visible) => !visible)} className="rounded-md border border-slate-200 bg-white px-4 py-2 text-xs font-medium text-slate-700 shadow-sm hover:bg-slate-50">Actions ▾</button>
-              {showActions && <div className="absolute right-0 z-10 mt-2 w-48 rounded-lg border border-slate-200 bg-white p-1 shadow-lg">
-                <button type="button" onClick={() => document.getElementById('status-select')?.focus()} className="block w-full rounded px-3 py-2 text-left text-xs text-slate-600 hover:bg-slate-50">Update Status</button>
-                <button type="button" onClick={openEmailComposer} className="block w-full rounded px-3 py-2 text-left text-xs text-slate-600 hover:bg-slate-50">Send Email to Customer</button>
-              </div>}
-            </div>
-          </div>
 
-          <div className="grid gap-5 lg:grid-cols-[1.05fr_.95fr]">
-            <section className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
-              <div className="border-b border-slate-100 px-5 py-4"><h2 className="text-sm font-bold text-slate-800">Customer Message</h2></div>
-              <div className="p-5">
-                <h3 className="mb-3 text-sm font-semibold text-slate-800">{inquiry.subject || 'No subject'}</h3>
-                <p className="whitespace-pre-wrap text-sm leading-6 text-slate-600">{inquiry.message || 'No message provided.'}</p>
-                <div className="mt-6 flex items-center gap-3 rounded-md bg-slate-50 p-3">
-                  <span className="grid h-8 w-8 place-items-center rounded-full bg-blue-100 text-xs font-bold text-blue-700">{customerInitials}</span>
-                  <div className="min-w-0"><p className="text-xs font-semibold text-slate-800">{inquiry.customer_name || 'Unknown customer'}</p><p className="text-xs text-slate-500">{inquiry.customer_email || 'No email available'}</p></div>
-                  {inquiry.customer_phone && <span className="ml-auto text-xs text-slate-500">{inquiry.customer_phone}</span>}
-                </div>
-                <p className="mt-4 border-t border-slate-100 pt-4 text-xs text-slate-400">Submitted: {formatDate(inquiry.created_at)}</p>
-              </div>
-            </section>
+            <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm sm:p-6">
+              <h2 className="text-lg font-semibold text-gray-900">
+                Inquiry Information
+              </h2>
 
-            <section className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
-              <div className="border-b border-slate-100 px-5 py-4"><h2 className="text-sm font-bold text-slate-800">Inquiry Information</h2></div>
-              <div className="space-y-4 p-5 text-xs">
-                <div className="grid grid-cols-2 gap-4"><div><p className="text-slate-400">Inquiry ID</p><p className="mt-1 font-medium text-slate-700">INQ-{inquiry.id}</p></div><div><p className="text-slate-400">Status</p><p className="mt-1 font-medium text-slate-700">{displayStatus}</p></div></div>
-                <div className="grid grid-cols-2 gap-4"><div><p className="text-slate-400">Created Date</p><p className="mt-1 font-medium text-slate-700">{formatDate(inquiry.created_at)}</p></div><div><p className="text-slate-400">Customer Contact</p><p className="mt-1 font-medium text-slate-700">{inquiry.customer_email || '—'}</p></div></div>
-                <div className="border-t border-slate-100 pt-4"><label htmlFor="status-select" className="text-slate-400">Change status</label><div className="mt-2 flex gap-2"><select id="status-select" value={nextStatus} onChange={(event) => setNextStatus(event.target.value)} className="h-9 flex-1 rounded-md border border-slate-200 bg-white px-2 text-xs text-slate-600"><option value="">Select status</option><option value="In Progress">In Progress</option><option value="Resolved">Resolved</option></select><button type="button" onClick={updateStatus} disabled={!nextStatus || savingStatus} className="rounded-md bg-blue-600 px-4 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-50">{savingStatus ? 'Saving...' : 'Update'}</button></div></div>
-                {message && <p className="text-xs text-blue-600">{message}</p>}
-              </div>
-            </section>
-          </div>
-          <section className="mt-5 rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
-            <h2 className="mb-3 text-sm font-bold text-slate-800">Admin Actions</h2>
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div className="rounded-lg border border-slate-200 p-3">
-                <div className="flex items-start gap-3">
-                  <span className="mt-0.5 text-lg text-orange-500">✉</span>
-                  <div>
-                    <h3 className="text-sm font-semibold text-slate-800">Request More Information</h3>
-                    <p className="mt-1 text-xs leading-5 text-slate-500">Ask the customer for additional details about this inquiry.</p>
-                  </div>
+              <dl className="mt-5 grid grid-cols-1 gap-5 sm:grid-cols-2">
+                <div>
+                  <dt className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                    Inquiry ID
+                  </dt>
+                  <dd className="mt-2 text-sm text-gray-900">
+                    #{inquiry.id}
+                  </dd>
                 </div>
-                <button type="button" onClick={openEmailComposer} className="mt-3 w-full rounded-full border border-blue-400 bg-white py-2 text-xs font-semibold text-blue-600 hover:bg-blue-50">Request More Information</button>
-              </div>
-              <div className="rounded-lg border border-slate-200 p-3">
-                <div className="flex items-start gap-3">
-                  <span className="mt-0.5 text-lg text-emerald-500">✓</span>
-                  <div>
-                    <h3 className="text-sm font-semibold text-slate-800">Resolve Inquiry</h3>
-                    <p className="mt-1 text-xs leading-5 text-slate-500">Send a resolution email and close this inquiry.</p>
-                  </div>
+
+                <div>
+                  <dt className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                    Status
+                  </dt>
+                  <dd className="mt-2">
+                    <span
+                      className={`rounded-full px-3 py-1 text-xs font-semibold ${statusStyle(
+                        currentStatus,
+                      )}`}
+                    >
+                      {currentStatus || 'Unknown'}
+                    </span>
+                  </dd>
                 </div>
-                <button type="button" onClick={openResolutionComposer} disabled={displayStatus === 'Resolved'} className="mt-3 w-full rounded-full border border-blue-400 bg-white py-2 text-xs font-semibold text-blue-600 hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-50">Resolve &amp; Notify Customer</button>
-              </div>
+
+                <div>
+                  <dt className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                    Created At
+                  </dt>
+                  <dd className="mt-2 text-sm text-gray-900">
+                    {formatDate(inquiry.created_at)}
+                  </dd>
+                </div>
+
+                <div>
+                  <dt className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                    Last Updated
+                  </dt>
+                  <dd className="mt-2 text-sm text-gray-900">
+                    {formatDate(inquiry.updated_at)}
+                  </dd>
+                </div>
+              </dl>
             </div>
           </section>
-        </div>
-      </main>
-      {showEmailComposer && (
-        <div className="fixed inset-0 z-30 flex items-center justify-center bg-slate-900/40 p-4" role="dialog" aria-modal="true" aria-labelledby="email-dialog-title">
-          <section className="w-full max-w-lg rounded-xl bg-white shadow-2xl">
-            <div className="flex items-start justify-between border-b border-slate-100 px-6 py-5">
-              <div>
-                <h2 id="email-dialog-title" className="text-base font-bold text-slate-900">{emailMode === 'resolution' ? 'Resolve & Notify Customer' : 'Request More Information'}</h2>
-                <p className="mt-1 text-xs text-slate-500">{emailMode === 'resolution' ? 'Send the resolution details to the customer.' : 'Send a follow-up message about this inquiry.'}</p>
+
+          {/* Customer contact details */}
+          <aside className="space-y-6">
+            <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
+              <h2 className="text-lg font-semibold text-gray-900">
+                Customer Details
+              </h2>
+
+              <div className="mt-5">
+                <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                  Customer Name
+                </p>
+                <p className="mt-2 break-words text-sm font-medium text-gray-900">
+                  {inquiry.customer_name || 'Not provided'}
+                </p>
               </div>
-              <button type="button" onClick={() => setShowEmailComposer(false)} aria-label="Close email composer" className="text-xl leading-none text-slate-400 hover:text-slate-700">×</button>
+
+              <div className="mt-5">
+                <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                  Email Address
+                </p>
+                <p className="mt-2 break-all text-sm text-gray-700">
+                  {inquiry.customer_email || 'Not provided'}
+                </p>
+              </div>
+
+              {inquiry.customer_phone && (
+                <div className="mt-5">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                    Phone Number
+                  </p>
+                  <p className="mt-2 text-sm text-gray-700">
+                    {inquiry.customer_phone}
+                  </p>
+                </div>
+              )}
             </div>
-            <form onSubmit={sendEmail} className="space-y-4 p-6">
-              <div>
-                <label htmlFor="recipient" className="mb-1.5 block text-xs font-semibold text-slate-600">To</label>
-                <input id="recipient" value={inquiry.customer_email || 'No email available'} readOnly className="h-10 w-full rounded-md border border-slate-200 bg-slate-50 px-3 text-xs text-slate-500" />
-              </div>
-              <div>
-                {emailMode === 'follow-up' && <><label htmlFor="email-subject" className="mb-1.5 block text-xs font-semibold text-slate-600">Subject</label>
-                <input id="email-subject" value={emailSubject} onChange={(event) => setEmailSubject(event.target.value)} maxLength={200} required className="h-10 w-full rounded-md border border-slate-200 px-3 text-xs text-slate-700 outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100" /></>}
-              </div>
-              <div>
-                <label htmlFor="email-message" className="mb-1.5 block text-xs font-semibold text-slate-600">Message</label>
-                <textarea id="email-message" value={emailMessage} onChange={(event) => setEmailMessage(event.target.value)} maxLength={5000} rows={6} placeholder="Write your message to the customer..." required className="w-full resize-y rounded-md border border-slate-200 px-3 py-2.5 text-xs leading-5 text-slate-700 outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100" />
-                <p className="mt-1 text-right text-[10px] text-slate-400">{emailMessage.length}/5000</p>
-              </div>
-              {emailError && <p className="rounded-md bg-red-50 px-3 py-2 text-xs text-red-700" role="alert">{emailError}</p>}
-              {emailSent && <p className="rounded-md bg-emerald-50 px-3 py-2 text-xs text-emerald-700" role="status">Email sent successfully.</p>}
-              <div className="flex justify-end gap-3 border-t border-slate-100 pt-4">
-                <button type="button" onClick={() => setShowEmailComposer(false)} className="rounded-md border border-slate-200 px-4 py-2 text-xs font-medium text-slate-600 hover:bg-slate-50">Cancel</button>
-                <button type="submit" disabled={sendingEmail || !inquiry.customer_email} className="rounded-md bg-blue-600 px-5 py-2 text-xs font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50">{sendingEmail ? 'Sending...' : emailMode === 'resolution' ? 'Resolve & Notify' : 'Send Email'}</button>
-              </div>
-            </form>
-          </section>
+
+            {/* Status management */}
+            <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
+              <h2 className="text-lg font-semibold text-gray-900">
+                Update Status
+              </h2>
+
+              <p className="mt-2 text-sm leading-6 text-gray-500">
+                Choose the next status for this inquiry.
+              </p>
+
+              <label
+                htmlFor="inquiry-status"
+                className="mt-5 block text-sm font-medium text-gray-700"
+              >
+                Inquiry Status
+              </label>
+
+              <select
+                id="inquiry-status"
+                value={nextStatus}
+                onChange={(event) => {
+                  setNextStatus(event.target.value)
+                  setError('')
+                  setSuccessMessage('')
+                }}
+                disabled={isResolved || savingStatus || sendingEmail}
+                className="mt-2 w-full rounded-xl border border-gray-300 bg-white px-3 py-3 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 disabled:bg-gray-100"
+              >
+                {STATUSES.map((status) => {
+                  const isAllowed =
+                    status === currentStatus ||
+                    (currentStatus === 'New' &&
+                      ['In Progress', 'Resolved'].includes(status)) ||
+                    (currentStatus === 'In Progress' &&
+                      status === 'Resolved')
+
+                  return (
+                    <option
+                      key={status}
+                      value={status}
+                      disabled={!isAllowed}
+                    >
+                      {status}
+                    </option>
+                  )
+                })}
+              </select>
+
+              <button
+                type="button"
+                onClick={updateStatus}
+                disabled={
+                  !nextStatus ||
+                  savingStatus ||
+                  sendingEmail ||
+                  isResolved ||
+                  nextStatus === currentStatus ||
+                  nextStatus === 'Resolved'
+                }
+                className="mt-4 w-full rounded-xl bg-blue-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {savingStatus ? 'Updating...' : 'Update Status'}
+              </button>
+
+              {nextStatus === 'Resolved' && !isResolved && (
+                <p className="mt-3 text-xs leading-5 text-blue-700">
+                  To resolve this inquiry, use Resolve & Notify Customer
+                  so you can provide the resolution message.
+                </p>
+              )}
+
+              {isResolved && (
+                <p className="mt-3 text-xs leading-5 text-gray-500">
+                  This inquiry is resolved. You can still retry the
+                  resolution email below.
+                </p>
+              )}
+            </div>
+
+            {/* Customer communication actions */}
+            <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
+              <h2 className="text-lg font-semibold text-gray-900">
+                Admin Actions
+              </h2>
+
+              <p className="mt-2 text-sm leading-6 text-gray-500">
+                Communicate with the customer about this inquiry.
+              </p>
+
+              <button
+                type="button"
+                onClick={openEmailComposer}
+                disabled={sendingEmail}
+                className="mt-5 w-full rounded-xl border border-gray-300 bg-white px-4 py-3 text-sm font-semibold text-gray-700 transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Send Follow-up Email
+              </button>
+
+              <button
+                type="button"
+                onClick={openResolutionComposer}
+                disabled={
+                  sendingEmail ||
+                  (!isResolved && nextStatus !== 'Resolved')
+                }
+                className="mt-3 w-full rounded-xl bg-blue-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {isResolved
+                  ? 'Retry / Send Resolution Email'
+                  : 'Resolve & Notify Customer'}
+              </button>
+            </div>
+          </aside>
         </div>
-      )}
+
+        {/* Email composer modal */}
+        {emailMode && (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-black/50 p-4"
+            onClick={(event) => {
+              if (event.target === event.currentTarget) {
+                closeEmailComposer()
+              }
+            }}
+          >
+            <div
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="email-modal-title"
+              className="my-auto w-full max-w-xl rounded-2xl bg-white p-5 shadow-xl sm:p-6"
+            >
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <h2
+                    id="email-modal-title"
+                    className="text-xl font-bold text-gray-900"
+                  >
+                    {emailMode === 'resolution'
+                      ? 'Resolve & Notify Customer'
+                      : 'Send Follow-up Email'}
+                  </h2>
+
+                  <p className="mt-2 text-sm text-gray-500">
+                    To: {inquiry.customer_email || 'Customer email unavailable'}
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={closeEmailComposer}
+                  disabled={sendingEmail}
+                  aria-label="Close email composer"
+                  className="rounded-lg px-3 py-1 text-xl text-gray-500 hover:bg-gray-100 disabled:opacity-50"
+                >
+                  ×
+                </button>
+              </div>
+
+              {emailMode === 'resolution' && !isResolved && (
+                <div className="mt-5 rounded-xl border border-blue-200 bg-blue-50 p-3 text-sm leading-6 text-blue-800">
+                  Submitting this message will first mark the inquiry
+                  as Resolved, then send the resolution email.
+                </div>
+              )}
+
+              {emailMode === 'resolution' && isResolved && (
+                <div className="mt-5 rounded-xl border border-green-200 bg-green-50 p-3 text-sm leading-6 text-green-800">
+                  The inquiry is already Resolved. Submitting will send
+                  the resolution email without changing its status.
+                </div>
+              )}
+
+              {emailError && (
+                <div
+                  role="alert"
+                  className="mt-4 rounded-xl border border-red-200 bg-red-50 p-3 text-sm leading-6 text-red-700"
+                >
+                  {emailError}
+                </div>
+              )}
+
+              {emailSuccess && (
+                <div
+                  role="status"
+                  className="mt-4 rounded-xl border border-green-200 bg-green-50 p-3 text-sm leading-6 text-green-700"
+                >
+                  {emailSuccess}
+                </div>
+              )}
+
+              <form onSubmit={sendEmail} className="mt-5 space-y-4">
+                {emailMode === 'follow-up' && (
+                  <div>
+                    <label
+                      htmlFor="email-subject"
+                      className="block text-sm font-medium text-gray-700"
+                    >
+                      Email Subject
+                    </label>
+
+                    <input
+                      id="email-subject"
+                      type="text"
+                      value={emailSubject}
+                      onChange={(event) =>
+                        setEmailSubject(event.target.value)
+                      }
+                      maxLength={200}
+                      required
+                      disabled={sendingEmail}
+                      placeholder="Enter email subject"
+                      className="mt-2 w-full rounded-xl border border-gray-300 px-3 py-3 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 disabled:bg-gray-100"
+                    />
+                  </div>
+                )}
+
+                <div>
+                  <label
+                    htmlFor="email-message"
+                    className="block text-sm font-medium text-gray-700"
+                  >
+                    {emailMode === 'resolution'
+                      ? 'Resolution Message'
+                      : 'Message'}
+                  </label>
+
+                  <textarea
+                    id="email-message"
+                    value={emailMessage}
+                    onChange={(event) =>
+                      setEmailMessage(event.target.value)
+                    }
+                    rows={6}
+                    maxLength={5000}
+                    required
+                    disabled={sendingEmail}
+                    placeholder={
+                      emailMode === 'resolution'
+                        ? 'Explain how the customer inquiry was resolved...'
+                        : 'Write your follow-up message...'
+                    }
+                    className="mt-2 w-full resize-y rounded-xl border border-gray-300 px-3 py-3 text-sm leading-6 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 disabled:bg-gray-100"
+                  />
+
+                  <p className="mt-1 text-right text-xs text-gray-400">
+                    {emailMessage.length}/5000
+                  </p>
+                </div>
+
+                <div className="flex flex-col-reverse gap-3 pt-2 sm:flex-row sm:justify-end">
+                  <button
+                    type="button"
+                    onClick={closeEmailComposer}
+                    disabled={sendingEmail}
+                    className="rounded-xl border border-gray-300 px-5 py-3 text-sm font-semibold text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    Cancel
+                  </button>
+
+                  <button
+                    type="submit"
+                    disabled={sendingEmail || !emailMessage.trim()}
+                    className="rounded-xl bg-blue-600 px-5 py-3 text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {sendingEmail
+                      ? emailMode === 'resolution'
+                        ? 'Resolving & Sending...'
+                        : 'Sending Email...'
+                      : emailMode === 'resolution'
+                        ? isResolved
+                          ? 'Send Resolution Email'
+                          : 'Resolve & Send Email'
+                        : 'Send Follow-up Email'}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+      </div>
     </AdminLayout>
   )
 }
-
-export default InquiryDetails

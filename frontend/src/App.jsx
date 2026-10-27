@@ -1,4 +1,3 @@
-
 import AdminLogin from './pages/Admin/AdminLogin'
 import DashboardPage from './pages/Admin/Dashboard'
 import AllInquiries from './pages/Admin/AllInquiries'
@@ -11,13 +10,17 @@ function App() {
   if (currentPath === '/dashboard') {
     return <DashboardPage />
   }
+
   if (currentPath === '/all-inquiries') {
     return <AllInquiries />
   }
+
   if (currentPath === '/customer-portal') {
     return <CustomerPortal />
   }
-  const inquiryDetailsMatch = currentPath.match(/^\/inquiries\/(\d+)$/)
+
+  const inquiryDetailsMatch = currentPath.match(/^\/inquiries\/([^/]+)$/)
+
   if (inquiryDetailsMatch) {
     return <InquiryDetails inquiryId={inquiryDetailsMatch[1]} />
   }

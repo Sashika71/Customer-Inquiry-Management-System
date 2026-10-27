@@ -1,6 +1,5 @@
 import { useState } from 'react'
-
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000'
+import API_URL from '../../config/api'
 
 function MailIcon() {
   return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="3.5" y="5.5" width="17" height="13" rx="1.5" /><path d="m4 6.25 8 6 8-6" /></svg>
@@ -83,7 +82,6 @@ function CustomerPortal() {
               <button type="button" onClick={() => { setSuccess(''); setReferenceNumber('') }} className="mt-6 rounded-md bg-blue-600 px-5 py-2.5 text-xs font-semibold text-white shadow-sm hover:bg-blue-700">
                 Submit Another Inquiry <span className="ml-2">→</span>
               </button>
-              <a href="/" className="mt-4 text-xs font-semibold text-blue-600 hover:text-blue-800">Back to Home</a>
             </div>
           </section>
         </div>
@@ -104,7 +102,6 @@ function CustomerPortal() {
               <span className="h-5 w-5 text-blue-600"><MailIcon /></span>
               Inquiry<span className="font-normal">Desk</span>
             </a>
-            <a href="/" className="text-[10px] text-slate-400 hover:text-blue-600">← Back to Home</a>
           </header>
 
           <div className="grid gap-8 p-5 md:grid-cols-[1.15fr_.7fr] md:p-7">
