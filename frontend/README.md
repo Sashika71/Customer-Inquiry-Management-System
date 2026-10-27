@@ -59,6 +59,15 @@ Run lint checks:
 npm run lint
 ```
 
+Run frontend unit tests:
+
+```bash
+npm test
+```
+
+Tests are stored in `test/`, use Vitest with jsdom and React Testing Library,
+and mock API requests so they do not require the backend.
+
 ## Available pages
 
 - `/customer-portal` — public customer inquiry submission form
