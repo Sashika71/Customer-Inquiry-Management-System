@@ -48,6 +48,7 @@ function AllInquiries() {
   const [error, setError] = useState('')
   const [page, setPage] = useState(1)
   const [selectedInquiry, setSelectedInquiry] = useState(null)
+  const [refreshKey, setRefreshKey] = useState(0)
 
   useEffect(() => {
     async function loadInquiries() {
@@ -93,7 +94,7 @@ function AllInquiries() {
     }
 
     loadInquiries()
-  }, [])
+  }, [refreshKey])
 
   const filteredInquiries = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase()
@@ -153,13 +154,38 @@ function AllInquiries() {
     <AdminLayout activePage="inquiries">
       <main className="min-h-screen bg-slate-50 p-4 sm:p-6 lg:p-8">
         <div className="mx-auto max-w-[1320px]">
-          <div className="mb-5">
-            <h1 className="text-2xl font-bold text-slate-900">
-              All Inquiries
-            </h1>
-            <p className="mt-1 text-sm text-slate-500">
-              Manage and review all customer inquiries.
-            </p>
+          <div className="mb-5 flex items-start justify-between gap-4">
+            <div>
+              <h1 className="text-2xl font-bold text-slate-900">
+                All Inquiries
+              </h1>
+              <p className="mt-1 text-sm text-slate-500">
+                Manage and review all customer inquiries.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setRefreshKey((current) => current + 1)}
+              disabled={loading}
+              aria-label="Refresh inquiries"
+              title="Refresh inquiries"
+              className="grid h-9 w-9 shrink-0 place-items-center rounded-lg border border-slate-200 bg-white text-lg text-slate-600 shadow-sm hover:bg-slate-100 disabled:cursor-wait disabled:opacity-50"
+            >
+              <svg
+                className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`}
+                viewBox="0 0 24 24"
+                fill="none"
+                aria-hidden="true"
+              >
+                <path
+                  d="M20 11a8 8 0 0 0-14.9-4M4 5v4h4M4 13a8 8 0 0 0 14.9 4M20 19v-4h-4"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </svg>
+            </button>
           </div>
 
           <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
@@ -265,8 +291,18 @@ function AllInquiries() {
                   No inquiries match the selected filters.
                 </div>
               ) : (
-                <div className="overflow-x-auto">
-                  <table className="w-full min-w-[1100px] text-left">
+                <div className="w-full">
+                  <table className="w-full table-fixed text-left text-xs">
+                    <colgroup>
+                      <col className="w-[8%]" />
+                      <col className="w-[18%]" />
+                      <col className="w-[19%]" />
+                      <col className="w-[11%]" />
+                      <col className="w-[12%]" />
+                      <col className="w-[12%]" />
+                      <col className="w-[14%]" />
+                      <col className="w-[7%]" />
+                    </colgroup>
                     <thead className="bg-slate-50">
                       <tr>
                         {[
@@ -281,7 +317,7 @@ function AllInquiries() {
                         ].map((heading) => (
                           <th
                             key={heading}
-                            className="px-5 py-3 text-xs font-semibold text-slate-500"
+                            className="whitespace-nowrap px-3 py-3 font-semibold text-slate-500 sm:px-4"
                           >
                             {heading}
                           </th>
@@ -293,26 +329,26 @@ function AllInquiries() {
                       {pageInquiries.map((item) => (
                         <tr
                           key={item.id}
-                          className="hover:bg-slate-50"
+                          className="align-middle hover:bg-slate-50"
                         >
-                          <td className="px-5 py-4 text-xs text-slate-500">
+                          <td className="whitespace-nowrap px-3 py-4 text-slate-500 sm:px-4">
                             INQ-{item.id}
                           </td>
 
-                          <td className="px-5 py-4">
-                            <p className="text-sm font-semibold text-slate-800">
+                          <td className="px-3 py-4 sm:px-4">
+                            <p className="font-semibold text-slate-800">
                               {item.customer_name || 'Unknown customer'}
                             </p>
-                            <p className="text-xs text-slate-500">
+                            <p className="break-all text-[11px] leading-4 text-slate-500">
                               {item.customer_email || 'No email available'}
                             </p>
                           </td>
 
-                          <td className="max-w-[200px] truncate px-5 py-4 text-sm text-slate-600">
+                          <td className="break-words px-3 py-4 leading-4 text-slate-600 sm:px-4">
                             {item.subject || 'No subject'}
                           </td>
 
-                          <td className="px-5 py-4">
+                          <td className="px-3 py-4 sm:px-4">
                             <span
                               className={`inline-flex rounded-full px-3 py-1 text-xs font-medium ${statusStyle(item.status)}`}
                             >
@@ -320,20 +356,20 @@ function AllInquiries() {
                             </span>
                           </td>
 
-                          <td className="px-5 py-4 text-xs text-slate-500">
+                          <td className="whitespace-nowrap px-3 py-4 text-slate-500 sm:px-4">
                             {formatDate(item.created_at)}
                           </td>
 
-                          <td className="px-5 py-4 text-xs text-slate-500">
+                          <td className="whitespace-nowrap px-3 py-4 text-slate-500 sm:px-4">
                             {formatDate(
                               item.updated_at || item.created_at
                             )}
                           </td>
 
-                          <td className="px-5 py-4">
+                          <td className="whitespace-nowrap px-3 py-4 sm:px-4">
                             {item.is_duplicate === true ||
                             item.is_duplicate === 1 ? (
-                              <span className="whitespace-nowrap rounded-full bg-purple-100 px-3 py-1 text-xs font-medium text-purple-800">
+                              <span className="rounded-full bg-purple-100 px-2 py-1 text-xs font-medium text-purple-800">
                                 Duplicate
                                 {item.duplicate_of_id
                                   ? ` of INQ-${item.duplicate_of_id}`
@@ -345,17 +381,17 @@ function AllInquiries() {
                                 onClick={() =>
                                   setSelectedInquiry(item)
                                 }
-                                className="whitespace-nowrap rounded-md border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs font-medium text-amber-800 hover:bg-amber-100"
+                                className="rounded-md border border-amber-200 bg-amber-50 px-2 py-1.5 text-xs font-medium text-amber-800 hover:bg-amber-100"
                               >
                                 Review Duplicates
                               </button>
                             )}
                           </td>
 
-                          <td className="px-5 py-4">
+                          <td className="whitespace-nowrap px-3 py-4 pr-5 sm:px-4 sm:pr-6">
                             <a
                               href={`/inquiries/${item.id}`}
-                              className="rounded-md border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-700 hover:border-blue-300 hover:text-blue-600"
+                              className="inline-block rounded-md border border-slate-200 px-2 py-1.5 text-xs font-medium text-slate-700 hover:border-blue-300 hover:text-blue-600"
                             >
                               View
                             </a>

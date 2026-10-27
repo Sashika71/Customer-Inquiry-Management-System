@@ -35,7 +35,7 @@ async function login(req, res) {
     const user = result.rows[0];
 
     // Compare the entered password with the hashed password
-    // stored in the database.
+    
     const isPasswordValid = await bcrypt.compare(
       password,
       user.password_hash
@@ -67,7 +67,7 @@ async function login(req, res) {
     );
 
     // Return the token and basic user details after successful login.
-    // Do not send the password hash to the frontend.
+    
     return res.status(200).json({
       message: "Login successful",
       token,
